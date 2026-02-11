@@ -1,133 +1,201 @@
 #include <WiFi.h>
-#include <PubSubClient.h>
+#include <HTTPClient.h>
 #include <DHT.h>
-#include "cred.h"
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
-// ----------------- PIN CONFIG -----------------
+// ----------------- CONFIG -----------------
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
+#define SCREEN_ADDRESS 0x3C
+
 #define DHTPIN 16
 #define DHTTYPE DHT22
-
 #define TRIG_PIN 4
-#define ECHO_PIN 0
+#define ECHO_PIN 17  
+#define BUTTON_PIN 5
+#define OLED_SCL 7
+#define OLED_SDA 8
 
-// Detection thresholds
-#define DIST_THRESHOLD 5        // cm
-#define TEMP_THRESHOLD 28.5     // °C
-
-// ---------------------------------------------
+#define DIST_THRESHOLD 5
+#define TEMP_THRESHOLD 28.5
+#define MAX_TEMP_ALERT 32.0
 
 // Objects
-WiFiClient espClient;
-PubSubClient client(espClient);
 DHT dht(DHTPIN, DHTTYPE);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // Timing
 unsigned long lastDHTRead = 0;
-const unsigned long DHT_INTERVAL = 1000; // fastest safe rate
+unsigned long lastUltrasonic = 0;
+unsigned long lastAWSUpdate = 0;
+unsigned long lastOLEDUpdate = 0;
 
-// Fast temperature smoothing
-#define TEMP_SAMPLES 3
-float tempBuffer[TEMP_SAMPLES];
-int tempIndex = 0;
-bool bufferFilled = false;
+const unsigned long DHT_INTERVAL = 2000;
+const unsigned long ULTRASONIC_INTERVAL = 150;
+const unsigned long AWS_INTERVAL = 10000; // Updated to 10s to save on AWS Lambda costs
+const unsigned long OLED_INTERVAL = 500; 
 
-// Wear state
+// State tracking
+bool sensorsEnabled = true;
+bool isWorn = false;
 bool lastIsWorn = false;
+bool lastSensorsEnabled = true;
+bool isAlertActive = false;
+bool lastAlertActive = false;
+
+unsigned long buttonPressTime = 0;
+const unsigned long DEBOUNCE_DELAY = 250;
+float currentTemp = 0;
+long currentDistance = 999;
 
 // ------------------------------------------------
+
 void setup_wifi() {
   Serial.print("Connecting to WiFi");
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
-    delay(300);
+    delay(500);
     Serial.print(".");
   }
-  Serial.println("\nWiFi connected");
+  Serial.println("\nWiFi Connected.");
 }
 
-// ------------------------------------------------
-void reconnect() {
-  while (!client.connected()) {
-    if (client.connect("ESP32S2Client", mqtt_user, mqtt_pass)) {
-      Serial.println("MQTT connected");
+void sendToAWS(float temp, long dist, bool worn) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(aws_endpoint);
+    http.addHeader("Content-Type", "application/json");
+
+    // Construct JSON Payload
+    String jsonPayload = "{";
+    jsonPayload += "\"temperature\":" + String(temp);
+    jsonPayload += ",\"distance\":" + String(dist);
+    jsonPayload += ",\"status\":\"" + String(worn ? "WORN" : "NOT WORN") + "\"";
+    jsonPayload += "}";
+
+    int httpResponseCode = http.POST(jsonPayload);
+    
+    if (httpResponseCode > 0) {
+      // Success! (Optionally log response for debugging)
     } else {
-      delay(2000);
+      Serial.print("AWS Error Code: ");
+      Serial.println(httpResponseCode);
     }
+    http.end();
   }
 }
 
-// ------------------------------------------------
+void updateOLED() {
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  
+  if (sensorsEnabled && isWorn && currentTemp > MAX_TEMP_ALERT) {
+    display.setTextSize(2);
+    display.setCursor(0, 0);
+    display.println("!! HOT !!");
+    display.setTextSize(1);
+    display.setCursor(0, 30);
+    display.println("REMOVE BRACE NOW");
+  } else {
+    display.setTextSize(1);
+    display.setCursor(0, 0);
+    display.println("--- AWS MONITOR ---");
+    display.setCursor(0, 15);
+    display.print("System: "); display.println(sensorsEnabled ? "ACTIVE" : "OFF");
+    display.setCursor(0, 30);
+    display.print("Status: ");
+    if (!sensorsEnabled) display.println("STANDBY");
+    else display.println(isWorn ? "WORN" : "NOT WORN");
+    display.setCursor(0, 45);
+    display.print("T: "); display.print(currentTemp, 1); display.print(" C | ");
+    display.print("D: "); display.print(currentDistance); display.println("cm");
+  }
+  display.display();
+}
+
+void handleSensors() {
+  unsigned long now = millis();
+  if (now - lastUltrasonic >= ULTRASONIC_INTERVAL) {
+    lastUltrasonic = now;
+    digitalWrite(TRIG_PIN, LOW);
+    delayMicroseconds(2);
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+    long duration = pulseIn(ECHO_PIN, HIGH, 25000);
+    if (duration > 0) currentDistance = duration * 0.034 / 2;
+  }
+  if (now - lastDHTRead >= DHT_INTERVAL) {
+    lastDHTRead = now;
+    float t = dht.readTemperature();
+    if (!isnan(t)) currentTemp = t;
+  }
+  isWorn = (currentDistance < DIST_THRESHOLD && currentTemp > TEMP_THRESHOLD);
+  isAlertActive = (isWorn && currentTemp > MAX_TEMP_ALERT);
+}
+
+void logStatusChange() {
+  Serial.println("-------------------------");
+  Serial.print("EVENT: ");
+  if (sensorsEnabled != lastSensorsEnabled) {
+    Serial.println(sensorsEnabled ? "SYSTEM ACTIVATED" : "SYSTEM DEACTIVATED");
+  } else if (isAlertActive != lastAlertActive) {
+    Serial.println(isAlertActive ? "HEAT ALERT TRIGGERED" : "ALERT CLEARED");
+  } else {
+    Serial.println(isWorn ? "WORN" : "NOT WORN");
+  }
+  Serial.print("Data: "); Serial.print(currentTemp, 1); Serial.print("C | ");
+  Serial.print(currentDistance); Serial.println("cm");
+  Serial.println("-------------------------");
+}
+
 void setup() {
   Serial.begin(115200);
-  Serial.println("BOOT OK");
-
-  dht.begin();
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
-
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  dht.begin();
+  Wire.begin(OLED_SDA, OLED_SCL);
+  display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
   setup_wifi();
-  client.setServer(mqtt_server, mqtt_port);
 }
 
-// ------------------------------------------------
-long readUltrasonicDistanceCM() {
-  digitalWrite(TRIG_PIN, LOW);
-  delayMicroseconds(2);
-  digitalWrite(TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
+void loop() {
+  unsigned long now = millis();
 
-  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
-  if (duration == 0) return -1;
-  return duration * 0.034 / 2;
-}
-
-// ------------------------------------------------
-float getFastAveragedTemp(float newTemp) {
-  tempBuffer[tempIndex++] = newTemp;
-  if (tempIndex >= TEMP_SAMPLES) {
-    tempIndex = 0;
-    bufferFilled = true;
+  // 1. Button Logic
+  if (digitalRead(BUTTON_PIN) == LOW) {
+    if (now - buttonPressTime > DEBOUNCE_DELAY) {
+      sensorsEnabled = !sensorsEnabled;
+      buttonPressTime = now;
+      if (!sensorsEnabled) { isWorn = false; currentTemp = 0; currentDistance = 999; isAlertActive = false; }
+    }
   }
 
-  float sum = 0;
-  int count = bufferFilled ? TEMP_SAMPLES : tempIndex;
-  for (int i = 0; i < count; i++) sum += tempBuffer[i];
-  return sum / count;
-}
+  // 2. Sensor & Logic
+  if (sensorsEnabled) {
+    handleSensors();
+    if (now - lastAWSUpdate >= AWS_INTERVAL) {
+      lastAWSUpdate = now;
+      sendToAWS(currentTemp, currentDistance, isWorn);
+    }
+  }
 
-// ------------------------------------------------
-void loop() {
-  if (!client.connected()) reconnect();
-  client.loop();
-
-  // ---- Read ultrasonic continuously ----
-  long distance = readUltrasonicDistanceCM();
-  if (distance <= 0) return;
-
-  // ---- Read DHT22 as fast as allowed ----
-  if (millis() - lastDHTRead < DHT_INTERVAL) return;
-  lastDHTRead = millis();
-
-  float tempC = dht.readTemperature();
-  if (isnan(tempC)) return;
-
-  float avgTemp = getFastAveragedTemp(tempC);
-
-  // ---- Wear detection ----
-  bool isWorn = (distance < DIST_THRESHOLD && avgTemp > TEMP_THRESHOLD);
-
-  // ---- STATUS-ONLY MQTT UPDATE ----
-  if (isWorn != lastIsWorn) {
-    client.publish("okjazim/feeds/status", isWorn ? "WORN" : "NOT WORN");
-
-    Serial.println(isWorn ? "Status: WORN" : "Status: NOT WORN");
-    Serial.print("Distance: ");
-    Serial.print(distance);
-    Serial.print(" cm | Temp: ");
-    Serial.print(avgTemp);
-    Serial.println(" °C");
-
+  // 3. Change Detection for Serial Monitor
+  if (sensorsEnabled != lastSensorsEnabled || isWorn != lastIsWorn || isAlertActive != lastAlertActive) {
+    logStatusChange();
+    updateOLED();
+    lastSensorsEnabled = sensorsEnabled;
     lastIsWorn = isWorn;
+    lastAlertActive = isAlertActive;
+  }
+
+  // 4. OLED Refresh
+  if (now - lastOLEDUpdate >= OLED_INTERVAL) {
+    lastOLEDUpdate = now;
+    updateOLED();
   }
 }
