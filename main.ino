@@ -39,7 +39,7 @@ const int   daylightOffset_sec = 0;
 DHT dht(DHTPIN, DHTTYPE);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// Timing Intervals [cite: 93, 123]
+// Timing Intervals 
 unsigned long lastDHTRead = 0;
 unsigned long lastUltrasonic = 0;
 unsigned long lastAWSUpdate = 0;
@@ -50,7 +50,7 @@ const unsigned long ULTRASONIC_INTERVAL = 150;
 const unsigned long AWS_INTERVAL = 10000; 
 const unsigned long OLED_INTERVAL = 500; 
 
-// State tracking [cite: 113, 118]
+// State tracking 
 bool sensorsEnabled = true;
 bool isWorn = false;
 bool lastIsWorn = false;
