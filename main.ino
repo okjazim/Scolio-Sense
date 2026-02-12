@@ -16,7 +16,7 @@
 #define DHTPIN 16
 #define DHTTYPE DHT22
 #define TRIG_PIN 4
-#define ECHO_PIN 17      // GPIO6 per documentation 
+#define ECHO_PIN 40      // GPIO6 per documentation 
 #define BUTTON_PIN 5
 #define OLED_SCL 7
 #define OLED_SDA 8
