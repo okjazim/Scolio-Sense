@@ -12,21 +12,20 @@
 #define OLED_RESET    -1
 #define SCREEN_ADDRESS 0x3C
 
-// Pin mappings based on Scolio-Sense PDF 
 #define DHTPIN 16
 #define DHTTYPE DHT22
 #define TRIG_PIN 4
-#define ECHO_PIN 40      // GPIO6 per documentation 
+#define ECHO_PIN 40      // GPIO40 per documentation 
 #define BUTTON_PIN 5
 #define OLED_SCL 7
 #define OLED_SDA 8
 
-// Thresholds [cite: 115, 117]
+// Thresholds 
 #define DIST_THRESHOLD 5
 #define TEMP_THRESHOLD 28.5
 #define MAX_TEMP_ALERT 32.0
 
-// WiFi & AWS Config [cite: 124, 200]
+// WiFi & AWS Config 
 const char* ssid = "Wokwi-GUEST";
 const char* password = "";
 const char* aws_endpoint = "https://your-api-id.execute-api.region.amazonaws.com/prod/sensor";
@@ -225,18 +224,18 @@ void loop() {
     }
   }
 
-  // 2. Core Logic [cite: 89]
+  // 2. Core Logic
   if (sensorsEnabled) {
     handleSensors();
 
-    // Periodic Cloud Update [cite: 124, 201]
+    // Periodic Cloud Update 
     if (now - lastAWSUpdate >= AWS_INTERVAL) {
       lastAWSUpdate = now;
       sendToAWS(currentTemp, currentDistance, isWorn);
     }
   }
 
-  // 3. Event-Based Change Detection (Serial + OLED Update) [cite: 96, 101]
+  // 3. Event-Based Change Detection (Serial + OLED Update) 
   if (sensorsEnabled != lastSensorsEnabled || isWorn != lastIsWorn || isAlertActive != lastAlertActive) {
     logStatusChange();
     updateOLED();
@@ -245,7 +244,7 @@ void loop() {
     lastAlertActive = isAlertActive;
   }
 
-  // 4. Regular OLED Refresh [cite: 125]
+  // 4. Regular OLED Refresh
   if (now - lastOLEDUpdate >= OLED_INTERVAL) {
     lastOLEDUpdate = now;
     updateOLED();
