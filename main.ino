@@ -28,7 +28,6 @@
 
 const char* ssid = "Wokwi-GUEST";
 const char* password = "";
-const char* aws_ingest_endpoint = "https://y9450kxgni.execute-api.us-east-1.amazonaws.com/prod/ingest";
 
 // BERLIN TIME CONFIGURATION
 // Central European Time (CET) is UTC+1. Central European Summer Time (CEST) is UTC+2.
