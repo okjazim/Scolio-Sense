@@ -6,7 +6,6 @@
 #include <Adafruit_SSD1306.h>
 #include <ArduinoJson.h> 
 #include "time.h"
-#include "cred.h"
 
 // ----------------- CONFIG -----------------
 #define SCREEN_WIDTH 128
@@ -22,31 +21,32 @@
 #define OLED_SCL 7
 #define OLED_SDA 8
 
-// Thresholds matched to Lambda
+// Thresholds
 #define DIST_THRESHOLD 5.0    
 #define TEMP_THRESHOLD 32.0   
 #define MAX_TEMP_ALERT 38.0   
 
 const char* ssid = "Wokwi-GUEST";
 const char* password = "";
-// Ensure these paths end with /ingest
+const char* aws_ingest_endpoint = "https://y9450kxgni.execute-api.us-east-1.amazonaws.com/prod/ingest";
 
-const char* ntpServer = "pool.ntp.org";
-const long  gmtOffset_sec = 28800; 
-const int   daylightOffset_sec = 0;
+// BERLIN TIME CONFIGURATION
+// Central European Time (CET) is UTC+1. Central European Summer Time (CEST) is UTC+2.
+const char* ntpServer = "de.pool.ntp.org";
+const char* TZ_INFO = "CET-1CEST,M3.5.0,M10.5.0/3"; // Berlin specific POSIX timezone string
 
 DHT dht(DHTPIN, DHTTYPE);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 unsigned long lastDHTRead = 0, lastUltrasonic = 0, lastAWSUpdate = 0, lastOLEDUpdate = 0;
-
-// INCREASED SPEED: Uploading every 3 seconds for faster dashboard normalization
 const unsigned long AWS_INTERVAL = 2000; 
 const unsigned long OLED_INTERVAL = 500; 
 
+// State variables
 bool sensorsEnabled = true, isWorn = false, isAlertActive = false;
 bool lastIsWorn = false, lastIsAlertActive = false, lastSensorsEnabled = true; 
 float currentTemp = 0;
+float currentHumidity = 0; // Added humidity variable
 long currentDistance = 999; 
 
 // ------------------------------------------------
@@ -55,6 +55,7 @@ String getTimestamp() {
   struct tm timeinfo;
   if(!getLocalTime(&timeinfo)) return "[Time Error]";
   char buf[25];
+  // Format: Hour:Minute:Second
   strftime(buf, sizeof(buf), "[%H:%M:%S]", &timeinfo);
   return String(buf);
 }
@@ -66,6 +67,7 @@ void logEvent(String eventName) {
   Serial.println(eventName);
   Serial.print("DATA: ");
   Serial.print(currentTemp, 1); Serial.print("C | ");
+  Serial.print(currentHumidity, 1); Serial.print("%H | "); // Added to serial monitor
   Serial.print(currentDistance); Serial.println("cm");
   Serial.println("-----------------------------------");
 }
@@ -75,7 +77,9 @@ void setup_wifi() {
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
   Serial.println("\nWiFi Connected.");
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  
+  // Set timezone for Berlin
+  configTzTime(TZ_INFO, ntpServer); 
 }
 
 void sendToAWS() {
@@ -86,13 +90,13 @@ void sendToAWS() {
 
     StaticJsonDocument<200> doc;
     doc["patientId"] = "p001";
-    doc["tempC"] = currentTemp;        // Key for Lambda
-    doc["distanceCm"] = currentDistance; // Key for Lambda
-    doc["humidity"] = 50;
+    doc["tempC"] = currentTemp;
+    doc["distanceCm"] = currentDistance;
+    doc["humidity"] = currentHumidity; // Now sending real data instead of 50
     
     String json;
     serializeJson(doc, json);
-    int code = http.POST(json);
+    http.POST(json);
     http.end();
   }
 }
@@ -103,16 +107,18 @@ void updateOLED() {
   
   if (isAlertActive) {
     display.setTextSize(2); display.setCursor(0, 10); display.println("!! HOT !!");
-    display.setTextSize(1); display.setCursor(0, 40); display.println("REMOVE BRACE");
   } else {
-    display.setTextSize(1); display.setCursor(0, 0); display.println("SCOLIO-SENSE");
-    display.setCursor(0, 20);
+    display.setTextSize(1); display.setCursor(0, 0); 
+    display.println("SCOLIO-SENSE (BERLIN)"); // UI indicator
+    
+    display.setCursor(0, 15);
     display.print("Status: "); 
     if (!sensorsEnabled) display.println("OFF");
     else display.println(isWorn ? "WORN" : "NOT WORN");
 
-    display.setCursor(0, 40);
+    display.setCursor(0, 30);
     display.print("Temp: "); display.print(currentTemp, 1); display.println(" C");
+    display.print("Hum:  "); display.print(currentHumidity, 1); display.println(" %");
     display.print("Dist: "); display.print(currentDistance); display.println(" cm");
   }
   display.display();
@@ -135,6 +141,7 @@ void loop() {
   }
 
   if (sensorsEnabled) {
+    // Distance Sensor
     if (now - lastUltrasonic >= 150) {
       lastUltrasonic = now;
       digitalWrite(TRIG_PIN, LOW); delayMicroseconds(2); digitalWrite(TRIG_PIN, HIGH);
@@ -142,23 +149,26 @@ void loop() {
       long duration = pulseIn(ECHO_PIN, HIGH);
       if (duration > 0) currentDistance = duration * 0.034 / 2;
     }
+    
+    // DHT22 Sensor (Temp & Humidity)
     if (now - lastDHTRead >= 2000) {
       lastDHTRead = now;
       float t = dht.readTemperature();
+      float h = dht.readHumidity(); // Fetching Humidity
       if (!isnan(t)) currentTemp = t;
+      if (!isnan(h)) currentHumidity = h; // Updating Humidity variable
     }
 
     isWorn = (currentDistance <= DIST_THRESHOLD && currentTemp >= TEMP_THRESHOLD);
     isAlertActive = (currentTemp > MAX_TEMP_ALERT);
 
-    // Faster Cloud Update
     if (now - lastAWSUpdate >= AWS_INTERVAL) { 
       sendToAWS(); 
       lastAWSUpdate = now; 
     }
   }
 
-  // Event Logging for Serial Monitor
+  // Event Logging Logic
   if (sensorsEnabled != lastSensorsEnabled) {
     logEvent(sensorsEnabled ? "SYSTEM ACTIVE" : "SYSTEM STANDBY");
     lastSensorsEnabled = sensorsEnabled;

@@ -1,2 +1,3 @@
 # Scolio-Sense
 This project implements a smart tracking system for scoliosis brace wear using HC-SR04 and DHT22 sensors. The ultrasonic sensor detects when the brace is put on or taken off, while the temperature sensor verifies that the brace is in contact with the patient’s body, ensuring accurate wear detection. The system logs daily start and end times, calculates total hours of wear, and provides doctors with reliable data to assess treatment accordingly. This helps encourage patients to follow their prescribed regimen and supports better treatment outcomes. Potential limitations include sensor heating and exposure to sweat, which may affect comfort and durability.
+![Alt text](image.png)
