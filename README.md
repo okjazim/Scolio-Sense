@@ -93,6 +93,6 @@ See [`LICENSE`](LICENSE) for details.
 
 ## References
 
-- **HC-SR04 ultrasonic sensor**: Typical datasheets and tutorials (e.g., on [Arduino documentation](https://docs.arduino.cc/) or similar resources).
-- **DHT22 temperature/humidity sensor**: Manufacturer datasheet and usage guides.
-- **Scoliosis brace adherence literature**: Add links to any academic or clinical papers you base this project on.
+- **HC-SR04 ultrasonic sensor**:To be added
+- **DHT22 temperature/humidity sensor**: To be added.
+- **Scoliosis brace adherence literature**: To be added.
