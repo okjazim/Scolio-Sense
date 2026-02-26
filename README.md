@@ -54,8 +54,8 @@ This project implements a smart tracking system for scoliosis brace wear using H
 - **System overview image**
   - ![Scolio-Sense overview](image.png)
 
-- **Video demo (optional)**
-  - Add a link to your demo video here once available.
+- **Video demo**
+  - Coming Soon.
 
 ## File Structure
 
