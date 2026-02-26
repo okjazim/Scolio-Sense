@@ -88,7 +88,8 @@ This project is intended as a **supportive tracking tool** and **must not** repl
 
 ## License
 
-Specify your chosen license here (e.g., MIT, Apache 2.0) and add the corresponding `LICENSE` file to the repository.
+This project is licensed under the **MIT License**.
+See [`LICENSE`](LICENSE) for details.
 
 ## References
 
